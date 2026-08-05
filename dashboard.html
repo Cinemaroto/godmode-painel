@@ -67,9 +67,11 @@ a{color:var(--gold2)}
     <p class="muted">Importa os <b id="seedCount">0</b> episódios já preparados (áudio + nome, data, participantes e assuntos completos; capas por enquanto só de 2010–2011) para o banco. Só cria os que ainda não existem — não sobrescreve o que você editou.</p>
     <div class="row">
       <button id="btnImport">Importar catálogo inicial</button>
+      <button id="btnOverwrite" class="ghost">Sobrescrever tudo (atualizar)</button>
       <button id="btnReload" class="ghost">Recarregar lista</button>
       <span class="pill" id="dbcount"></span>
     </div>
+    <p class="muted" style="margin-top:8px;font-size:12px">“Importar” só cria os que faltam. “Sobrescrever tudo” atualiza todos com o catálogo — use uma vez agora, já que você importou uma versão antiga (só faça antes de editar episódios à mão).</p>
     <div id="log" class="hidden"></div>
   </div>
 
@@ -263,6 +265,24 @@ $("btnSave").onclick=async()=>{
 };
 
 $("btnReload").onclick=loadEpisodes;
+
+$("btnOverwrite").onclick=async()=>{
+  if(!confirm("Isto vai SOBRESCREVER os "+SEED.length+" episódios com o catálogo (nome, data, participantes, assuntos, áudio, capa). Use só se você ainda não editou episódios à mão. Continuar?")) return;
+  $("btnOverwrite").disabled=true; $("btnImport").disabled=true;
+  try{
+    log("Sobrescrevendo "+SEED.length+" episódios…");
+    let done=0;
+    for(let i=0;i<SEED.length;i+=400){
+      const chunk=SEED.slice(i,i+400);
+      const batch=writeBatch(db);
+      chunk.forEach(e=>batch.set(doc(db,"episodes",String(e.num)),e));
+      await batch.commit();
+      done+=chunk.length; log(`  ${done}/${SEED.length}…`,"ok");
+    }
+    log("Atualização concluída ✓","ok"); loadEpisodes();
+  }catch(e){ log("Erro: "+e.message,"err"); }
+  $("btnOverwrite").disabled=false; $("btnImport").disabled=false;
+};
 
 $("btnImport").onclick=async()=>{
   if(!confirm("Importar o catálogo inicial ("+SEED.length+" episódios)? Só cria os que ainda não existem.")) return;
