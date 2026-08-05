@@ -76,6 +76,17 @@ a{color:var(--gold2)}
   </div>
 
   <div class="card">
+    <h2>Capas em lote</h2>
+    <p class="muted">Selecione a <b>pasta</b> com as imagens das capas (os arquivos precisam começar com o número do episódio, ex.: <code>001 Godmode - ….jpg</code>). O painel reduz cada imagem e associa ao episódio pelo número — as capas aparecem no app sozinhas.</p>
+    <div class="row">
+      <input type="file" id="capaFiles" webkitdirectory directory multiple accept="image/*">
+      <button id="btnCapas">Enviar capas</button>
+      <span class="pill" id="capaInfo"></span>
+    </div>
+    <div id="capalog" class="hidden" style="background:#0e0a07;border:1px solid rgba(246,200,90,.1);border-radius:10px;padding:10px;max-height:200px;overflow:auto;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;white-space:pre-wrap;margin-top:10px"></div>
+  </div>
+
+  <div class="card">
     <h2 id="formTitle">Adicionar episódio</h2>
     <div class="grid">
       <div><label>Nº</label><input id="f_num" type="number" inputmode="numeric"></div>
@@ -303,6 +314,48 @@ $("btnImport").onclick=async()=>{
     log("Importação concluída ✓","ok"); loadEpisodes();
   }catch(e){ log("Erro na importação: "+e.message,"err"); }
   $("btnImport").disabled=false;
+};
+
+/* ===== Capas em lote ===== */
+const VALID=new Set(SEED.map(e=>String(e.num)));
+const clog=(m,cls="")=>{const d=$("capalog");d.classList.remove("hidden");d.innerHTML+=`<div class="${cls}">${m}</div>`;d.scrollTop=d.scrollHeight;};
+function compressImg(file, maxW=360, q=0.6){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      c.getContext("2d").drawImage(img,0,0,w,h);
+      try{ res(c.toDataURL("image/jpeg",q)); }catch(err){ rej(err); }
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(img.src); rej(new Error("imagem inválida")); };
+    img.src=URL.createObjectURL(file);
+  });
+}
+$("btnCapas").onclick=async()=>{
+  const files=[...($("capaFiles").files||[])].filter(f=>/^image\//.test(f.type)||/\.(jpe?g|png|webp)$/i.test(f.name));
+  if(!files.length){ alert("Selecione a pasta com as imagens das capas primeiro."); return; }
+  $("btnCapas").disabled=true;
+  let ok=0,skip=0,err=0;
+  clog(`Processando ${files.length} arquivo(s)…`);
+  for(const f of files){
+    const base=f.name.replace(/^.*[\\\/]/,"");           // só o nome do arquivo
+    const m=base.match(/^\s*0*(\d+)/);                    // número no começo (tira zeros à esquerda)
+    if(!m){ skip++; clog("↷ ignorado (sem número): "+base); continue; }
+    const num=String(parseInt(m[1],10));
+    if(!VALID.has(num)){ skip++; clog("↷ ignorado (episódio "+num+" não existe): "+base); continue; }
+    try{
+      const data=await compressImg(f,360,0.6);
+      await setDoc(doc(db,"episodes",num),{capa:data},{merge:true});
+      ok++; clog(`✓ #${num} — ${Math.round(data.length/1024)} KB`,"ok");
+    }catch(e){ err++; clog("✗ erro em "+base+": "+e.message,"err"); }
+    $("capaInfo").textContent=`${ok} enviadas · ${skip} ignoradas · ${err} erros`;
+  }
+  clog(`Concluído: ${ok} enviadas, ${skip} ignoradas, ${err} erros ✓`,"ok");
+  $("btnCapas").disabled=false;
+  loadEpisodes();
 };
 </script>
 </body></html>
