@@ -103,6 +103,9 @@ a{color:var(--gold2)}
       <button id="btnClearPub" class="ghost mini">Limpar agendamento</button>
       <span class="muted" style="font-size:12px">Vazio = publica agora. Com data/hora futura, o episódio fica <b>agendado</b> e só aparece no app a partir dela.</span>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;color:var(--tx);font-size:13px">
+      <input type="checkbox" id="f_oculto" style="width:auto;margin:0"> Fora do ar (não aparece no app, mesmo com áudio) — útil enquanto o episódio está em edição
+    </label>
     <label>Capa</label>
     <div class="row">
       <input id="f_capa" type="file" accept="image/*" style="max-width:260px">
@@ -213,6 +216,7 @@ async function loadEpisodes(){
 }
 function esc(s){return (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
 function statusOf(e){
+  if(e.oculto) return {cls:"off",txt:"fora do ar"};
   if(!e.publicar) return {cls:"on",txt:"no ar"};
   const t=new Date(e.publicar).getTime();
   if(isNaN(t)||t<=Date.now()) return {cls:"on",txt:"no ar"};
@@ -230,17 +234,26 @@ function renderList(){
     <td><span class="tag ${st.cls}">${st.txt}</span></td>
     <td><span class="tag ${e.audio?"on":"off"}">${e.audio?"sim":"não"}</span></td>
     <td><span class="tag ${e.assuntos?"on":"off"}">${e.assuntos?"sim":"—"}</span></td>
-    <td class="acts"><button class="ghost mini" data-edit="${e.num}">Editar</button>
+    <td class="acts"><button class="ghost mini" data-toggle="${e.num}">${e.oculto?"▲ Pôr no ar":"▼ Tirar do ar"}</button>
+        <button class="ghost mini" data-edit="${e.num}">Editar</button>
         <button class="danger mini" data-del="${e.num}">Excluir</button></td>
   </tr>`}).join("");
 }
 $("q").oninput=renderList;
 
 $("tbody").addEventListener("click",ev=>{
-  const ed=ev.target.getAttribute("data-edit"), dl=ev.target.getAttribute("data-del");
+  const ed=ev.target.getAttribute("data-edit"), dl=ev.target.getAttribute("data-del"), tg=ev.target.getAttribute("data-toggle");
   if(ed){ editEpisode(+ed); }
   if(dl){ if(confirm("Excluir o episódio #"+dl+"?")) delEpisode(+dl); }
+  if(tg){ toggleAir(+tg); }
 });
+async function toggleAir(num){
+  const e=EPISODES.find(x=>x.num===num); if(!e) return;
+  const novo=!e.oculto;
+  try{ await setDoc(doc(db,"episodes",String(num)),{oculto:novo},{merge:true});
+    log((novo?"Tirado do ar":"Colocado no ar")+": #"+num,"ok"); loadEpisodes();
+  }catch(err){ alert("Erro: "+err.message); }
+}
 
 let capaData="";
 function fillForm(e){
@@ -248,6 +261,7 @@ function fillForm(e){
   $("f_nome").value=e.nome??""; $("f_data").value=e.data??""; $("f_arquivo").value=e.arquivo??"";
   $("f_audio").value=e.audio??""; $("f_participantes").value=e.participantes??""; $("f_assuntos").value=e.assuntos??"";
   $("f_publicar").value=e.publicar||"";
+  $("f_oculto").checked=!!e.oculto;
   capaData=e.capa||""; $("capaPreview").src=capaData||"";
   $("formTitle").textContent=e.num?("Editar episódio #"+e.num):"Adicionar episódio";
 }
@@ -280,7 +294,7 @@ $("btnSave").onclick=async()=>{
     nome:$("f_nome").value.trim(), data:$("f_data").value.trim()||null, arquivo:$("f_arquivo").value.trim(),
     audio:$("f_audio").value.trim(), participantes:$("f_participantes").value.trim(),
     assuntos:$("f_assuntos").value.trim(), capa:capaData||"",
-    publicar:$("f_publicar").value||""
+    publicar:$("f_publicar").value||"", oculto:$("f_oculto").checked
   };
   try{ await setDoc(doc(db,"episodes",String(num)),obj,{merge:true});
     const st=obj.publicar&&new Date(obj.publicar).getTime()>Date.now();
