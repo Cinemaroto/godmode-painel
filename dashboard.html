@@ -28,6 +28,7 @@ th{color:var(--gold2);font-size:11px;text-transform:uppercase;letter-spacing:.5p
 td .cap{width:44px;height:44px}
 .tag{font-size:10px;font-weight:800;padding:2px 7px;border-radius:20px}
 .tag.on{background:rgba(91,208,106,.15);color:var(--ok)} .tag.off{background:rgba(255,106,90,.12);color:var(--err)}
+.tag.sched{background:rgba(246,200,90,.18);color:var(--gold2)}
 .acts{display:flex;gap:6px}
 .mini{padding:6px 10px;font-size:12px}
 #log{background:#0e0a07;border:1px solid rgba(246,200,90,.1);border-radius:10px;padding:10px;max-height:180px;overflow:auto;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;white-space:pre-wrap;margin-top:10px}
@@ -96,6 +97,12 @@ a{color:var(--gold2)}
     <label>Link do áudio (Dropbox — cole o link normal, o app ajusta)</label><input id="f_audio">
     <label>Participantes</label><input id="f_participantes" placeholder="Paulo, Pita, ...">
     <label>Assuntos (texto de busca)</label><textarea id="f_assuntos"></textarea>
+    <label>Agendar publicação (opcional)</label>
+    <div class="row">
+      <input id="f_publicar" type="datetime-local" style="max-width:240px">
+      <button id="btnClearPub" class="ghost mini">Limpar agendamento</button>
+      <span class="muted" style="font-size:12px">Vazio = publica agora. Com data/hora futura, o episódio fica <b>agendado</b> e só aparece no app a partir dela.</span>
+    </div>
     <label>Capa</label>
     <div class="row">
       <input id="f_capa" type="file" accept="image/*" style="max-width:260px">
@@ -115,7 +122,7 @@ a{color:var(--gold2)}
       <input id="q" placeholder="Filtrar por nome, ano, número…">
       <span class="pill" id="listcount"></span>
     </div>
-    <table><thead><tr><th>Nº</th><th>Capa</th><th>Nome</th><th>Ano</th><th>Áudio</th><th>Dados</th><th></th></tr></thead>
+    <table><thead><tr><th>Nº</th><th>Capa</th><th>Nome</th><th>Ano</th><th>Status</th><th>Áudio</th><th>Dados</th><th></th></tr></thead>
     <tbody id="tbody"></tbody></table>
   </div>
 
@@ -205,19 +212,27 @@ async function loadEpisodes(){
   }catch(e){ log("Erro ao ler o banco: "+e.message,"err"); }
 }
 function esc(s){return (s==null?"":String(s)).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+function statusOf(e){
+  if(!e.publicar) return {cls:"on",txt:"no ar"};
+  const t=new Date(e.publicar).getTime();
+  if(isNaN(t)||t<=Date.now()) return {cls:"on",txt:"no ar"};
+  const d=new Date(e.publicar), p=n=>String(n).padStart(2,"0");
+  return {cls:"sched",txt:"⏰ "+p(d.getDate())+"/"+p(d.getMonth()+1)+" "+p(d.getHours())+":"+p(d.getMinutes())};
+}
 function renderList(){
   const term=($("q").value||"").toLowerCase();
   const rows=EPISODES.filter(e=>!term || (e.num+" "+e.nome+" "+e.ano).toLowerCase().includes(term));
   $("listcount").textContent=rows.length+" de "+EPISODES.length;
-  $("tbody").innerHTML=rows.map(e=>`<tr>
+  $("tbody").innerHTML=rows.map(e=>{const st=statusOf(e);return `<tr>
     <td>#${String(e.num).padStart(3,"0")}</td>
     <td>${e.capa?`<img class="cap" src="${e.capa}">`:'<div class="cap"></div>'}</td>
     <td>${esc(e.nome)}</td><td>${e.ano||""}</td>
+    <td><span class="tag ${st.cls}">${st.txt}</span></td>
     <td><span class="tag ${e.audio?"on":"off"}">${e.audio?"sim":"não"}</span></td>
     <td><span class="tag ${e.assuntos?"on":"off"}">${e.assuntos?"sim":"—"}</span></td>
     <td class="acts"><button class="ghost mini" data-edit="${e.num}">Editar</button>
         <button class="danger mini" data-del="${e.num}">Excluir</button></td>
-  </tr>`).join("");
+  </tr>`}).join("");
 }
 $("q").oninput=renderList;
 
@@ -232,12 +247,14 @@ function fillForm(e){
   $("f_num").value=e.num??""; $("f_ano").value=e.ano??""; $("f_min").value=e.min??"";
   $("f_nome").value=e.nome??""; $("f_data").value=e.data??""; $("f_arquivo").value=e.arquivo??"";
   $("f_audio").value=e.audio??""; $("f_participantes").value=e.participantes??""; $("f_assuntos").value=e.assuntos??"";
+  $("f_publicar").value=e.publicar||"";
   capaData=e.capa||""; $("capaPreview").src=capaData||"";
   $("formTitle").textContent=e.num?("Editar episódio #"+e.num):"Adicionar episódio";
 }
 function editEpisode(num){ const e=EPISODES.find(x=>x.num===num); if(e){ fillForm(e); window.scrollTo({top:0,behavior:"smooth"}); } }
 $("btnNew").onclick=()=>{ fillForm({}); $("saveMsg").textContent=""; };
 $("btnClearCapa").onclick=()=>{ capaData=""; $("capaPreview").src=""; $("f_capa").value=""; };
+$("btnClearPub").onclick=()=>{ $("f_publicar").value=""; };
 
 $("f_capa").addEventListener("change",ev=>{
   const file=ev.target.files[0]; if(!file) return;
@@ -262,10 +279,12 @@ $("btnSave").onclick=async()=>{
     num:num, ano:parseInt($("f_ano").value)||null, min:parseInt($("f_min").value)||null,
     nome:$("f_nome").value.trim(), data:$("f_data").value.trim()||null, arquivo:$("f_arquivo").value.trim(),
     audio:$("f_audio").value.trim(), participantes:$("f_participantes").value.trim(),
-    assuntos:$("f_assuntos").value.trim(), capa:capaData||""
+    assuntos:$("f_assuntos").value.trim(), capa:capaData||"",
+    publicar:$("f_publicar").value||""
   };
   try{ await setDoc(doc(db,"episodes",String(num)),obj,{merge:true});
-    $("saveMsg").textContent="Salvo ✓"; loadEpisodes();
+    const st=obj.publicar&&new Date(obj.publicar).getTime()>Date.now();
+    $("saveMsg").textContent=st?("Agendado para "+obj.publicar.replace("T"," ")+" ✓"):"Salvo ✓"; loadEpisodes();
   }catch(e){ $("saveMsg").textContent=""; alert("Erro ao salvar: "+e.message); }
 };
 
