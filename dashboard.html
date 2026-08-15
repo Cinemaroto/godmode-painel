@@ -264,10 +264,13 @@ $("tbody").addEventListener("click",ev=>{
   if(dl){ if(confirm("Excluir o episódio #"+dl+"?")) delEpisode(+dl); }
   if(tg){ toggleAir(+tg); }
 });
+// avisa os apps que o catálogo mudou (eles atualizam o cache só quando isto muda)
+async function bumpVersion(){ try{ await setDoc(doc(db,"config","app"),{version:Date.now()},{merge:true}); }catch(e){} }
+
 async function toggleAir(num){
   const e=EPISODES.find(x=>x.num===num); if(!e) return;
   const novo=!e.oculto;
-  try{ await setDoc(doc(db,"episodes",String(num)),{oculto:novo},{merge:true});
+  try{ await setDoc(doc(db,"episodes",String(num)),{oculto:novo},{merge:true}); await bumpVersion();
     log((novo?"Tirado do ar":"Colocado no ar")+": #"+num,"ok"); loadEpisodes();
   }catch(err){ alert("Erro: "+err.message); }
 }
@@ -300,7 +303,7 @@ $("f_capa").addEventListener("change",ev=>{
 });
 
 async function delEpisode(num){
-  try{ await deleteDoc(doc(db,"episodes",String(num))); log("Excluído #"+num,"ok"); loadEpisodes(); }
+  try{ await deleteDoc(doc(db,"episodes",String(num))); await bumpVersion(); log("Excluído #"+num,"ok"); loadEpisodes(); }
   catch(e){ alert("Erro ao excluir: "+e.message); }
 }
 
@@ -313,7 +316,7 @@ $("btnSave").onclick=async()=>{
     assuntos:$("f_assuntos").value.trim(), capa:capaData||"",
     publicar:$("f_publicar").value||"", oculto:$("f_oculto").checked
   };
-  try{ await setDoc(doc(db,"episodes",String(num)),obj,{merge:true});
+  try{ await setDoc(doc(db,"episodes",String(num)),obj,{merge:true}); await bumpVersion();
     const st=obj.publicar&&new Date(obj.publicar).getTime()>Date.now();
     $("saveMsg").textContent=st?("Agendado para "+obj.publicar.replace("T"," ")+" ✓"):"Salvo ✓"; loadEpisodes();
   }catch(e){ $("saveMsg").textContent=""; alert("Erro ao salvar: "+e.message); }
@@ -348,7 +351,11 @@ async function loadAppState(){
     if(d.mensagem) $("appMsg").value=d.mensagem;
     renderAppState(d.ativo!==false);
     renderBetaState(d.beta!==false);
-  }catch(e){ $("appState").textContent="não foi possível ler o estado"; }
+  }catch(e){
+    $("betaState").textContent="publique as regras do Firebase"; $("betaState").style.color="var(--err)";
+    $("appState").textContent="(config/app sem permissão de leitura)"; $("appState").style.color="var(--err)";
+    log("Não consegui ler config/app — publique as regras do Firebase (bloco config).","err");
+  }
 }
 $("btnAppToggle").onclick=async()=>{
   const off = $("btnAppToggle").dataset.on==="1";
@@ -409,6 +416,7 @@ $("btnCapas").onclick=async()=>{
     $("capaInfo").textContent=`${ok} enviadas · ${skip} ignoradas · ${err} erros`;
   }
   clog(`Concluído: ${ok} enviadas, ${skip} ignoradas, ${err} erros ✓`,"ok");
+  if(ok>0) await bumpVersion();
   $("btnCapas").disabled=false;
   loadEpisodes();
 };
